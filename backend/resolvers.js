@@ -6,8 +6,10 @@ const resolvers = {
   Query: {
     users: async () => await User.findAll(),
     posts: async () => await Post.findAll(),
-    userById: async (parent, args, context, info) => await User.findByPk(args.id),
-    postById: async (parent, args, context, info) => await Post.findByPk(args.id),
+    userById: async (parent, args, context, info) =>
+      await User.findByPk(args.id),
+    postById: async (parent, args, context, info) =>
+      await Post.findByPk(args.id),
   },
   Mutation: {
     addUser: async (_, { name, email, password }) => {
@@ -21,12 +23,16 @@ const resolvers = {
       return post;
     },
   },
-  // User: {
-  //   posts: async (user) => await user.getPosts(),
-  // },
-  // Post: {
-  //   user: async (post) => await post.getUser(),
-  // },
+  User: {
+    posts(parent) {
+      return Post.findAll({ where: { userId: parent.id } });
+    },
+  },
+  Post: {
+    user(parent) {
+      return User.findByPk(parent.userId);
+    },
+  },
 };
 
 module.exports = { resolvers };
