@@ -8,114 +8,223 @@ const verifyToken = require("./utils/verifyToken");
 
 const resolvers = {
   Query: {
-    users: async () => await User.findAll(),
-    posts: async () => await Post.findAll(),
-    userById: async (parent, args, context, info) =>
-      await User.findByPk(args.id),
-    postById: async (parent, args, context, info) =>
-      await Post.findByPk(args.id),
+    users: async () => {
+      try {
+        return await User.findAll();
+      } catch (error) {
+        throw new Error("ユーザーの取得中にエラーが発生しました。");
+      }
+    },
+    posts: async () => {
+      try {
+        return await Post.findAll();
+      } catch (error) {
+        throw new Error("投稿の取得中にエラーが発生しました。");
+      }
+    },
+    userById: async (parent, args, context, info) => {
+      return findUserById(args.id);
+    },
+    postById: async (parent, args, context, info) => {
+      return findPostById(args.id);
+    },
 
     login: async (_, { email, password }) => {
-      const user = await User.findOne({ where: { email } });
-      if (!user) {
-        throw new Error("ユーザーが見つかりません。");
-      }
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) {
-        throw new Error("パスワードが間違っています。");
-      }
-      const token = jwt.sign({ id: user.id, email: user.email }, SECRET_KEY, {
-        expiresIn: "24h",
-      });
-      const refreshToken = jwt.sign({ email }, SECRET_KEY, {
-        expiresIn: "7d",
-      });
-      return { user, token, refreshToken };
+      return loginUser(email, password);
     },
 
     authenticatedUser: async (_, __, { req }) => {
-      const token = req.headers.authorization;
-      if (!token) {
-        throw new Error("トークンが提供されていません。");
-      }
-      const decoded = verifyToken(token);
-      const user = await User.findByPk(decoded.id);
-      if (!user) {
-        throw new Error("ユーザーが見つかりません。");
-      }
-      return user;
+      return verifyUser(req.headers.authorization);
     },
   },
+
   Mutation: {
-    addUser: async (_, { name, email, password }) => {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(password, salt);
-      const user = await User.create({ name, email, password: hashedPassword });
-      const token = jwt.sign({ email }, SECRET_KEY, {
-        expiresIn: "24h",
-      });
-      const refreshToken = jwt.sign({ email }, SECRET_KEY, {
-        expiresIn: "7d",
-      });
-      console.log("token: ", token);
-      console.log("refreshToken: ", refreshToken);
-      return user;
+    addUser: async (_, { user }) => {
+      return createUser(user);
     },
-    addPost: async (_, { title, content, userId }) => {
-      const post = await Post.create({ title, content, userId });
-      return post;
+    updateUser: async (_, { id, user }) => {
+      return updateUser(id, user);
     },
-    updatePost: async (_, { id, title, content }, { req }) => {
-      const token = req.headers.authorization;
-      if (!token) {
-        throw new Error("トークンが提供されていません。");
+    addPost: async (_, { post }) => {
+      try {
+        const newPost = await Post.create(post);
+        return newPost;
+      } catch (error) {
+        throw new Error("投稿の追加中にエラーが発生しました。");
       }
-      const decoded = verifyToken(token);
-      const user = await User.findByPk(decoded.id);
-      if (!user) {
-        throw new Error("ユーザーが見つかりません。");
-      }
-      const post = await Post.findByPk(id);
-      if (!post) {
-        throw new Error("ポストが見つかりません。");
-      }
-      if (post.userId !== user.id) {
-        throw new Error("このポストを更新する権限がありません。");
-      }
-      await post.update({ title, content });
-      return post;
     },
-    deletePost: async (_, { id }, { req }) => {
-      const token = req.headers.authorization;
-      if (!token) {
-        throw new Error("トークンが提供されていません。");
-      }
-      const decoded = verifyToken(token);
-      const user = await User.findByPk(decoded.id);
-      if (!user) {
-        throw new Error("ユーザーが見つかりません。");
-      }
-      const post = await Post.findByPk(id);
-      if (!post) {
-        throw new Error("ポストが見つかりません。");
-      }
-      if (post.userId !== user.id) {
-        throw new Error("このポストを削除する権限がありません。");
-      }
-      await post.destroy();
-      return { message: "ポストが正常に削除されました。" };
+    updatePost: async (_, { id, post }) => {
+      return updatePost(id, post);
+    },
+    deletePost: async (_, { id }) => {
+      return deletePost(id);
     },
   },
   User: {
     posts(parent) {
-      return Post.findAll({ where: { userId: parent.id } });
+      try {
+        return Post.findAll({ where: { userId: parent.id } });
+      } catch (error) {
+        throw new Error("ユーザーの投稿の取得中にエラーが発生しました。");
+      }
     },
   },
   Post: {
     user(parent) {
-      return User.findByPk(parent.userId);
+      try {
+        return User.findByPk(parent.userId);
+      } catch (error) {
+        throw new Error("投稿に紐づくユーザーの取得中にエラーが発生しました。");
+      }
     },
   },
 };
+
+async function findUserById(id) {
+  try {
+    const user = await User.findByPk(id);
+    if (!user) {
+      const errorMessage = "指定されたIDのユーザーが見つかりません。";
+      console.log(errorMessage);
+      throw new Error(errorMessage);
+    }
+    return user;
+  } catch (error) {
+    throw new Error("ユーザーの検索中にエラーが発生しました。");
+  }
+}
+
+async function findPostById(id) {
+  try {
+    const post = await Post.findByPk(id);
+    if (!post) {
+      const errorMessage = "指定されたIDの投稿が見つかりません。";
+      console.log(errorMessage);
+      throw new Error(errorMessage);
+    }
+    return post;
+  } catch (error) {
+    throw new Error("投稿の検索中にエラーが発生しました。");
+  }
+}
+
+async function loginUser(email, password) {
+  try {
+    const user = await findUserByEmail(email);
+    await verifyPassword(password, user.password);
+    const { token, refreshToken } = generateTokens(user);
+    return { user, token, refreshToken };
+  } catch (error) {
+    throw new Error("ログイン処理中にエラーが発生しました。");
+  }
+}
+
+async function findUserByEmail(email) {
+  const user = await User.findOne({ where: { email } });
+  if (!user) {
+    const errorMessage = "ユーザーが見つかりません。";
+    console.log(errorMessage);
+    throw new Error(errorMessage);
+  }
+  return user;
+}
+
+async function verifyPassword(inputPassword, userPassword) {
+  const isMatch = await bcrypt.compare(inputPassword, userPassword);
+  if (!isMatch) {
+    const errorMessage = "パスワードが間違っています。";
+    console.log(errorMessage);
+    throw new Error(errorMessage);
+  }
+}
+
+async function verifyUser(token) {
+  try {
+    const user = await getUserFromToken(token);
+    return user;
+  } catch (error) {
+    throw new Error("認証済みユーザーの取得中にエラーが発生しました。");
+  }
+}
+
+async function getUserFromToken(token) {
+  if (!token) {
+    const errorMessage = "トークンが提供されていません。";
+    console.log(errorMessage);
+    throw new Error(errorMessage);
+  }
+  const decoded = verifyToken(token);
+  const user = await User.findByPk(decoded.id);
+  if (!user) {
+    const errorMessage = "ユーザーが見つかりません。";
+    console.log(errorMessage);
+    throw new Error(errorMessage);
+  }
+  return user;
+}
+
+const generateTokens = (user) => {
+  const token = jwt.sign({ id: user.id, email: user.email }, SECRET_KEY, {
+    expiresIn: "24h",
+  });
+  const refreshToken = jwt.sign({ email: user.email }, SECRET_KEY, {
+    expiresIn: "7d",
+  });
+  return { token, refreshToken };
+};
+
+async function createUser(user) {
+  try {
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(user.password, salt);
+    const newUser = await User.create({
+      ...user,
+      password: hashedPassword,
+    });
+    const { token, refreshToken } = generateTokens(newUser);
+    return { user: newUser, token, refreshToken };
+  } catch (error) {
+    throw new Error("ユーザーの追加中にエラーが発生しました。");
+  }
+}
+
+async function updateUser(id, user) {
+  try {
+    await User.update(user, { where: { id } });
+    const updatedUser = await User.findByPk(id);
+    return updatedUser;
+  } catch (error) {
+    throw new Error("ユーザーの更新中にエラーが発生しました。");
+  }
+}
+
+async function updatePost(id, post) {
+  try {
+    await Post.update(post, { where: { id } });
+    const updatedPost = await Post.findByPk(id);
+    if (!updatedPost) {
+      const errorMessage = "更新する投稿が見つかりません。";
+      console.log(errorMessage);
+      throw new Error(errorMessage);
+    }
+    return updatedPost;
+  } catch (error) {
+    throw new Error("投稿の更新中にエラーが発生しました。");
+  }
+}
+
+async function deletePost(id) {
+  try {
+    const result = await Post.destroy({ where: { id } });
+    if (result === 0) {
+      const errorMessage = "削除する投稿が見つかりません。";
+      console.log(errorMessage);
+      throw new Error(errorMessage);
+    }
+    return { message: "投稿は正常に削除されました" };
+  } catch (error) {
+    throw new Error("投稿の削除中にエラーが発生しました。");
+  }
+}
 
 module.exports = { resolvers };
